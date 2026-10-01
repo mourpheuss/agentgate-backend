@@ -1,3 +1,4 @@
+import os
 import time
 import uuid
 import json
@@ -428,8 +429,6 @@ class ProtocolHandler(BaseHTTPRequestHandler):
         return
 
 if __name__ == "__main__":
-    print("=" * 65)
-    print("⚡ AGENTGATE MOBİL AI & PROTOKOL AKTİF")
-    print("📱 Canlı Mobil AI Sohbet: /chat")
-    print("=" * 65)
-    HTTPServer(("127.0.0.1", 9000), ProtocolHandler).serve_forever()
+    port = int(os.environ.get("PORT", 9000))
+    print(f"⚡ AGENTGATE AKTİF (Port: {port})")
+    HTTPServer(("0.0.0.0", port), ProtocolHandler).serve_forever()
