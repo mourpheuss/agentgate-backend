@@ -430,6 +430,6 @@ class ProtocolHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     import os
-    port = int(os.environ.get("PORT", 9000))
-    print(f"⚡ AGENTGATE AKTİF (Port: {port})")
-    HTTPServer(("0.0.0.0", port), ProtocolHandler).serve_forever()
+    port = int(os.environ.get("PORT", 10000))
+    print(f"⚡ AGENTGATE AKTİF - PORT: {port}")
+    HTTPServer(("", port), ProtocolHandler).serve_forever()
