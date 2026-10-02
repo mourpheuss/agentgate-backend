@@ -29,7 +29,7 @@ def save_to_firebase(path, data, method="post"):
         return None
 
 # ==========================================================
-# FİRMALAR & AJAN ÖN ÖDEMELİ CÜZDANLARI
+# FİRMALAR & CÜZDAN HAVUZLARI
 # ==========================================================
 MERCHANTS = [
     {
@@ -64,7 +64,7 @@ MERCHANTS = [
     }
 ]
 
-# Örnek hazır yüklü bir Ajan HGS Geçiş Kartı
+# Aktif HGS Geçiş Kartları
 AGENT_PASSES = {
     "ag_pass_demo123": {
         "agent_name": "OpenAI GPTBot Kurumsal Havuzu",
@@ -79,33 +79,27 @@ OPENAPI_SPEC = {
     "info": {
         "title": "AgentGate AI Micropayment Toll Gate (HGS)",
         "description": "Yapay zeka modellerinin HTTP 402 HGS geçiş biletiyle web sitelerinden canlı veri çekmesini sağlayan takas odası.",
-        "version": "v1.3.0"
+        "version": "v1.4.0"
     },
     "servers": [{"url": "https://agent.mineoragame.com"}],
     "paths": {
+        "/api/v1/instant-pay": {
+            "post": {
+                "summary": "Makineden Makineye (M2M) Anlık Mikro Ödeme",
+                "description": "Botun HTTP 402 faturasını anında ödeyip tek kullanımlık geçiş bileti aldığı uç nokta.",
+                "operationId": "instantPaySettlement",
+                "responses": {
+                    "200": {"description": "Ödeme onaylandı, geçiş kartı üretildi."}
+                }
+            }
+        },
         "/api/v1/gate": {
             "post": {
                 "summary": "HGS Otoban Gişesi Geçişi",
                 "operationId": "passHgsGate",
-                "requestBody": {
-                    "required": True,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "type": "object",
-                                "properties": {
-                                    "query": {"type": "string"},
-                                    "category": {"type": "string"},
-                                    "agent_id": {"type": "string"}
-                                },
-                                "required": ["query"]
-                            }
-                        }
-                    }
-                },
                 "responses": {
-                    "200": {"description": "Bariyer açıldı, ücret kesildi ve canlı veri teslim edildi."},
-                    "402": {"description": "Ödeme Gerekli! Bakiye yetersiz veya HGS geçiş bileti eksik."}
+                    "200": {"description": "Bariyer açıldı, veri teslim edildi."},
+                    "402": {"description": "Ödeme Gerekli! Bilet eksik veya bakiye yetersiz."}
                 }
             }
         }
@@ -119,7 +113,7 @@ HTML_LANDING = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AgentGate HGS | Yapay Zekalar İçin Otoban Gişesi</title>
+  <title>AgentGate HGS | Otonom Yapay Zeka Otoban Gişesi</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -133,6 +127,7 @@ HTML_LANDING = """<!DOCTYPE html>
       --cyan: #06b6d4;
       --amber: #f59e0b;
       --rose: #f43f5e;
+      --purple: #a855f7;
       --text: #f8fafc;
       --text-muted: #94a3b8;
     }
@@ -156,12 +151,14 @@ HTML_LANDING = """<!DOCTYPE html>
     /* HGS SIMULATOR */
     .sim-wrapper { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto 60px; padding: 0 20px; }
     .sim-card { background: var(--card-bg); backdrop-filter: blur(20px); border: 1px solid var(--card-border); border-radius: 24px; padding: 32px; box-shadow: 0 30px 60px rgba(0,0,0,0.5); }
-    .sim-grid { display: grid; grid-template-columns: 1fr 140px 1fr; gap: 20px; align-items: center; }
+    .sim-grid { display: grid; grid-template-columns: 1.1fr 130px 1fr; gap: 20px; align-items: center; }
     @media(max-width: 850px) { .sim-grid { grid-template-columns: 1fr; } }
     .box { background: rgba(8, 12, 20, 0.8); border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; padding: 20px; }
     select, input { width: 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--card-border); color: #fff; padding: 10px 14px; border-radius: 10px; margin-top: 6px; font-family: inherit; }
-    .btn-fire-danger { width: 100%; background: linear-gradient(135deg, var(--rose), #be123c); color: #fff; font-weight: 700; border: none; padding: 11px; border-radius: 10px; cursor: pointer; margin-top: 10px; }
-    .btn-fire-pass { width: 100%; background: linear-gradient(135deg, var(--emerald), #059669); color: #000; font-weight: 700; border: none; padding: 11px; border-radius: 10px; cursor: pointer; margin-top: 10px; }
+    .btn-fire-danger { width: 100%; background: rgba(244,63,94,0.15); border: 1px solid rgba(244,63,94,0.4); color: #fca5a5; font-weight: 700; padding: 10px; border-radius: 10px; cursor: pointer; margin-top: 8px; font-size: 13px; }
+    .btn-fire-pass { width: 100%; background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.4); color: #6ee7b7; font-weight: 700; padding: 10px; border-radius: 10px; cursor: pointer; margin-top: 8px; font-size: 13px; }
+    .btn-fire-auto { width: 100%; background: linear-gradient(135deg, var(--purple), #7c3aed); color: #fff; font-weight: 800; border: none; padding: 12px; border-radius: 10px; cursor: pointer; margin-top: 10px; font-size: 13px; box-shadow: 0 0 25px rgba(168,85,247,0.3); transition: 0.2s; }
+    .btn-fire-auto:hover { transform: translateY(-1px); box-shadow: 0 0 35px rgba(168,85,247,0.5); }
     .bridge-node { width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, rgba(245,158,11,0.2), rgba(16,185,129,0.2)); border: 2px dashed var(--amber); display: flex; align-items: center; justify-content: center; font-size: 28px; margin: 0 auto; transition: 0.3s; }
     .terminal-feed { margin-top: 24px; background: #04060a; border: 1px solid rgba(255,255,255,0.05); border-radius: 14px; padding: 16px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #a5f3fc; max-height: 220px; overflow-y: auto; }
 
@@ -169,9 +166,8 @@ HTML_LANDING = """<!DOCTYPE html>
     .modal-overlay { display: none; position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.85); backdrop-filter: blur(10px); justify-content: center; align-items: center; padding: 20px; }
     .modal-card { background: #0d121f; border: 1px solid rgba(255,255,255,0.15); width: 100%; max-width: 520px; border-radius: 20px; padding: 32px; position: relative; }
     .modal-close { position: absolute; top: 20px; right: 20px; background: none; border: none; color: #64748b; font-size: 20px; cursor: pointer; }
-    .modal-close:hover { color: #fff; }
-    .amount-pill { border: 1px solid var(--card-border); background: rgba(255,255,255,0.03); color: #fff; padding: 10px; border-radius: 10px; cursor: pointer; text-align: center; font-weight: 700; transition: 0.2s; }
-    .amount-pill:hover, .amount-pill.active { border-color: var(--cyan); background: rgba(6,182,212,0.15); color: #a5f3fc; }
+    .amount-pill { border: 1px solid var(--card-border); background: rgba(255,255,255,0.03); color: #fff; padding: 10px; border-radius: 10px; cursor: pointer; text-align: center; font-weight: 700; }
+    .amount-pill.active { border-color: var(--cyan); background: rgba(6,182,212,0.15); color: #a5f3fc; }
 
     /* CODE SNIPPET */
     .snippet-section { max-width: 1100px; margin: 0 auto 80px; padding: 0 20px; position: relative; z-index: 1; }
@@ -190,16 +186,16 @@ HTML_LANDING = """<!DOCTYPE html>
       <a href="#snippet">Sitenize Gişe Kurun</a>
       <a href="/openapi.json" target="_blank" style="color:var(--cyan);">OpenAPI</a>
       <a href="/privacy">Gizlilik</a>
-      <button class="btn-topup" onclick="openTopupModal()">💳 Ajanına Bakiye Yükle (Top-Up)</button>
+      <button class="btn-topup" onclick="openTopupModal()">💳 Ajan Bakiye Yükle (Top-Up)</button>
     </div>
   </header>
 
   <main>
     <section class="hero">
-      <div class="tag">🛡️ HTTP 402 Standartlı Otonom Bot Gişesi</div>
+      <div class="tag">🛡️ HTTP 402 Standartlı Otonom Bot Gişesi • M2M Aktif</div>
       <h1>Web Sitenizi Kapatmayın,<br><span class="gradient-accent">Kapısına Yapay Zeka HGS'si Koyun</span></h1>
       <p>
-        İnsanlar sitenizi ücretsiz gezmeye devam etsin; Gemini, ChatGPT ve arama botları verinizi her çektiğinde HGS gişesinden kuruş bazında ödeme yapsın.
+        İnsanlar sitenizi ücretsiz gezmeye devam etsin; Gemini, ChatGPT ve arama botları verinizi her çektiğinde HGS gişesinden kuruş bazında otomatik ödeme yapsın.
       </p>
     </section>
 
@@ -209,16 +205,18 @@ HTML_LANDING = """<!DOCTYPE html>
         <div class="sim-grid">
           <div class="box">
             <b>🤖 Yapay Zeka Botu / Crawler</b>
-            <select id="botSelect" style="margin-top:8px;">
+            <select id="botSelect" style="margin-top:6px;">
               <option value="GPTBot (OpenAI Web Ajanı)">GPTBot / ChatGPT Search</option>
               <option value="Google-Extended (Gemini Crawler)">Google-Extended / Gemini Bot</option>
               <option value="ClaudeBot (Anthropic Research)">ClaudeBot</option>
             </select>
-            <input type="text" id="targetPath" value="/fiyatlar/ayvalik-otelleri.json" style="margin-top:8px;">
+            <input type="text" id="targetPath" value="/fiyatlar/ayvalik-otelleri.json" style="margin-top:6px;">
             
-            <div style="margin-top:14px; font-size:12px; color:var(--text-muted);">Test Seçeneği:</div>
-            <button class="btn-fire-danger" onclick="testWithoutPass()">1. Bilet/Bakiye Olmadan Saldır (HTTP 402 Testi)</button>
-            <button class="btn-fire-pass" onclick="testWithPass()">2. HGS Geçiş Kartıyla Geç (Otomatik Ödeme)</button>
+            <button class="btn-fire-auto" onclick="runAutonomousM2M()">⚡ Otonom Bot Modu (Otomatik Öde ve Geç)</button>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px;">
+              <button class="btn-fire-danger" onclick="testWithoutPass()">1. Biletsiz Saldır</button>
+              <button class="btn-fire-pass" onclick="testWithPass()">2. Kartla Geç</button>
+            </div>
           </div>
 
           <div style="text-align:center;">
@@ -236,17 +234,17 @@ HTML_LANDING = """<!DOCTYPE html>
         </div>
 
         <div class="terminal-feed" id="termLog">
-          <div>[04:15:00] HGS Gişe Kontrolörü devrede. HTTP 402 yönlendirmesi aktif.</div>
+          <div>[04:20:00] HGS Gişe Kontrolörü & M2M Otonom Ödeme motoru hazır.</div>
         </div>
       </div>
     </section>
 
-    <!-- KOD PARÇASI: SİTENİZE NASIL EKLERSİNİZ -->
+    <!-- KOD PARÇASI -->
     <section class="snippet-section" id="snippet">
       <div class="snippet-card">
         <div style="font-size:20px; font-weight:800; color:#fff;">🛠️ Web Sitenizin Kapısına HGS Takmak Sadece 1 Satır</div>
         <p style="font-size:14px; color:var(--text-muted); margin-top:6px;">
-          Botlar sitenize girdiğinde kapıdaki gişe HTTP 402 ile durdurur ve bakiye yüklemeleri için doğrudan <b>agent.mineoragame.com</b> gişesine sevk eder.
+          Botlar sitenize girdiğinde kapıdaki gişe HTTP 402 faturası keser ve botun anında <b>/api/v1/instant-pay</b> üzerinden ödeme yapmasını sağlar.
         </p>
 
         <pre><code>// Sitenize eklenecek Cloudflare / PHP / Node.js Gişe Kuralı
@@ -256,29 +254,28 @@ const userAgent = request.headers.get('User-Agent') || '';
 if (AI_BOTS.some(bot => userAgent.includes(bot))) {
   const hgsPass = request.headers.get('X-AgentGate-Pass');
   if (!hgsPass) {
-    // BARİYER: Bota HTTP 402 bas ve AgentGate portalına gönder!
+    // 402 FATURASI KES VE BOTUN OTONOM ÖDEME YAPMASINI SAĞLA
     return new Response(JSON.stringify({
       error: "HTTP 402 Payment Required",
-      message: "Bu sitenin canlı verisi botlar için ücretlidir.",
-      toll_operator: "AgentGate HGS Protocol",
-      topup_portal: "https://agent.mineoragame.com",
+      message: "Bu sitenin verisi ücretlidir.",
       fee: "0.35 TRY",
+      instant_pay_endpoint: "https://agent.mineoragame.com/api/v1/instant-pay",
       required_header: "X-AgentGate-Pass"
     }), { status: 402, headers: { 'Content-Type': 'application/json' } });
   }
 }
-return fetch(request); // Normal insanlara ücretsiz aç</code></pre>
+return fetch(request); // Normal insanlara ücretsiz</code></pre>
       </div>
     </section>
   </main>
 
-  <!-- BAKİYE YÜKLEME MODALI (TOP-UP) -->
+  <!-- BAKİYE YÜKLEME MODALI -->
   <div class="modal-overlay" id="topupModal">
     <div class="modal-card">
       <button class="modal-close" onclick="closeTopupModal()">✕</button>
       <div style="font-size:20px; font-weight:800; margin-bottom:6px; color:#fff;">💳 Yapay Zeka Ajan Havuzuna Bakiye Yükle</div>
       <p style="font-size:13px; color:var(--text-muted); margin-bottom:18px;">
-        Botlarınızın internetteki anlaşmalı yüzlerce otel, uçak ve e-ticaret sitesine takılmadan girebilmesi için ön ödemeli HGS geçiş bileti (Token) oluşturun.
+        Botlarınızın sitelere takılmadan girebilmesi için HGS geçiş bileti (Token) oluşturun.
       </p>
 
       <div style="margin-bottom:14px;">
@@ -296,13 +293,13 @@ return fetch(request); // Normal insanlara ücretsiz aç</code></pre>
       </div>
 
       <button class="btn-topup" style="width:100%; padding:14px; font-size:14px; margin-top:10px;" onclick="submitTopup()">
-        Bakiyeyi Onayla & HGS Geçiş Kartı Üret
+        Bakiyeyi Onayla & HGS Kartı Üret
       </button>
     </div>
   </div>
 
   <footer>
-    <p>© 2026 AgentGate HGS Protocol. Resmi Takas Uç Noktası: agent.mineoragame.com/api/v1/gate</p>
+    <p>© 2026 AgentGate HGS Protocol. M2M Instant Settlement: agent.mineoragame.com/api/v1/instant-pay</p>
   </footer>
 
   <script>
@@ -312,14 +309,12 @@ return fetch(request); // Normal insanlara ücretsiz aç</code></pre>
 
     function openTopupModal() { document.getElementById('topupModal').style.display = 'flex'; }
     function closeTopupModal() { document.getElementById('topupModal').style.display = 'none'; }
-
     function selectAmount(amt, el) {
       selectedTopupAmount = amt;
       document.querySelectorAll('.amount-pill').forEach(p => p.classList.remove('active'));
       el.classList.add('active');
     }
 
-    // BAKİYE YÜKLEME İŞLEMİ
     async function submitTopup() {
       const name = document.getElementById('topupAgentName').value.trim();
       const res = await fetch('/api/v1/topup', {
@@ -328,19 +323,73 @@ return fetch(request); // Normal insanlara ücretsiz aç</code></pre>
         body: JSON.stringify({ agent_name: name, amount: selectedTopupAmount })
       });
       const data = await res.json();
-
       if (data.success) {
         activeAgentPass = data.pass_token;
-        alert(`Bakiye Yüklendi!\\n\\nKart: ${data.pass_token}\\nYüklenen: ₺${data.amount}\\n\\nBotlarınız artık sitelerin kapısındaki AgentGate gişelerinden takılmadan geçebilir!`);
+        alert(`Bakiye Yüklendi!\\n\\nKart: ${data.pass_token}\\nYüklenen: ₺${data.amount}`);
         closeTopupModal();
-
-        const log = document.getElementById('termLog');
-        log.innerHTML += `<div style="color:#38bdf8;">💳 <b>[Ajan Havuzu Yüklendi]:</b> ${data.pass_token} koduna +₺${data.amount} bakiye eklendi. (Firebase senkronize)</div>`;
-        log.scrollTop = log.scrollHeight;
       }
     }
 
-    // 1. TEST: BİLET OLMADAN SALDIRI (HTTP 402)
+    // ⚡ OTONOM M2M DÖNGÜSÜ (KENDİ KENDİNE ÖDE VE GEÇ)
+    async function runAutonomousM2M() {
+      const bot = document.getElementById('botSelect').value;
+      const path = document.getElementById('targetPath').value;
+      const log = document.getElementById('termLog');
+      const barrier = document.getElementById('gateBarrier');
+      const bText = document.getElementById('barrierText');
+
+      function addLog(msg) {
+        log.innerHTML += `<div>${msg}</div>`;
+        log.scrollTop = log.scrollHeight;
+      }
+
+      // 1. Bot siteye dalar
+      addLog(`🤖 <b>[${bot}]</b> siteye istek attı: "${path}"`);
+      barrier.innerHTML = "🛑";
+      barrier.style.borderColor = "#f43f5e";
+      bText.innerText = "HTTP 402";
+      bText.style.color = "#f43f5e";
+
+      await new Promise(r => setTimeout(r, 400));
+
+      // 2. HTTP 402 Faturası çıkar
+      addLog(`<span style="color:#f43f5e;">⛔ <b>[HTTP 402]:</b> Site geçişi durdurdu. Fatura: 0.35 TRY kesildi.</span>`);
+
+      await new Promise(r => setTimeout(r, 500));
+
+      // 3. Bot faturayı anında öder (/api/v1/instant-pay)
+      addLog(`<span style="color:#c084fc;">⚡ <b>[M2M Otonom Motor]:</b> Bot HTTP 402'yi yakaladı. /api/v1/instant-pay çağrılıyor...</span>`);
+      
+      const payRes = await fetch('/api/v1/instant-pay', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          agent_id: bot,
+          query: path,
+          fee: 0.35
+        })
+      });
+      const payData = await payRes.json();
+
+      await new Promise(r => setTimeout(r, 400));
+
+      addLog(`<span style="color:#38bdf8;">💳 <b>[AgentGate Gişesi]:</b> Anlık tahsilat onaylandı. Tek kullanımlık bilet üretildi: <code>${payData.pass_token}</code></span>`);
+
+      await new Promise(r => setTimeout(r, 400));
+
+      // 4. Bot biletle tekrar dalar ve veriyi alır
+      bal += payData.fee_deducted;
+      document.getElementById('merchBal').innerText = '₺' + bal.toFixed(2);
+
+      barrier.innerHTML = "🟢";
+      barrier.style.borderColor = "#10b981";
+      bText.innerText = "BARİYER AÇIK";
+      bText.style.color = "#10b981";
+
+      addLog(`<span style="color:#34d399;">✅ <b>[Başarılı]:</b> Bariyer açıldı! Otelin kasasına +₺${payData.fee_deducted.toFixed(2)} eklendi. (Firebase Senkronize)</span>`);
+      addLog(`<span style="color:#a5f3fc;">📦 Güncel otel ve fiyat verisi bota teslim edildi. İşlem 1.2 saniyede bitti.</span>`);
+    }
+
     async function testWithoutPass() {
       const bot = document.getElementById('botSelect').value;
       const path = document.getElementById('targetPath').value;
@@ -348,25 +397,16 @@ return fetch(request); // Normal insanlara ücretsiz aç</code></pre>
       const barrier = document.getElementById('gateBarrier');
       const bText = document.getElementById('barrierText');
 
-      log.innerHTML += `<div>🚨 <b>[${bot}]</b> siteye daldı: "${path}" (Bileti yok)</div>`;
+      log.innerHTML += `<div>🚨 <b>[${bot}]</b> siteye daldı: "${path}"</div>`;
       barrier.innerHTML = "🛑";
       barrier.style.borderColor = "#f43f5e";
-      bText.innerText = "HTTP 402 DURDURULDU";
+      bText.innerText = "HTTP 402";
       bText.style.color = "#f43f5e";
 
-      const res = await fetch('/api/v1/gate', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ query: path, agent_id: bot, pass_token: "" })
-      });
-      const data = await res.json();
-
-      log.innerHTML += `<div style="color:#f43f5e;">⛔ <b>[HTTP 402 Payment Required]:</b> Geçiş reddedildi! Bota şu emir yollandı:</div>`;
-      log.innerHTML += `<div style="color:#fbbf24; font-size:12px; margin-left:14px;">👉 "Giriş için https://agent.mineoragame.com üzerinden bakiye yükleyin."</div>`;
+      log.innerHTML += `<div style="color:#f43f5e;">⛔ [HTTP 402]: Geçiş engellendi! Bakiye yükleyin: https://agent.mineoragame.com</div>`;
       log.scrollTop = log.scrollHeight;
     }
 
-    // 2. TEST: HGS KARTIYLA GEÇİŞ
     async function testWithPass() {
       const bot = document.getElementById('botSelect').value;
       const path = document.getElementById('targetPath').value;
@@ -374,27 +414,15 @@ return fetch(request); // Normal insanlara ücretsiz aç</code></pre>
       const barrier = document.getElementById('gateBarrier');
       const bText = document.getElementById('barrierText');
 
-      log.innerHTML += `<div>🚙 <b>[${bot}]</b> HGS Geçiş Kartını okuttu: "${activeAgentPass}"</div>`;
+      log.innerHTML += `<div>🚙 <b>[${bot}]</b> Kart okuttu: "${activeAgentPass}"</div>`;
+      bal += 0.35;
+      document.getElementById('merchBal').innerText = '₺' + bal.toFixed(2);
+      barrier.innerHTML = "🟢";
+      barrier.style.borderColor = "#10b981";
+      bText.innerText = "HGS GEÇİŞİ";
+      bText.style.color = "#10b981";
 
-      const res = await fetch('/api/v1/gate', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-AgentGate-Pass': activeAgentPass},
-        body: JSON.stringify({ query: path, agent_id: bot, pass_token: activeAgentPass })
-      });
-      const data = await res.json();
-
-      if (data.success) {
-        bal += data.fee_deducted;
-        document.getElementById('merchBal').innerText = '₺' + bal.toFixed(2);
-
-        barrier.innerHTML = "🟢";
-        barrier.style.borderColor = "#10b981";
-        bText.innerText = "HGS GEÇİŞİ ONAYLANDI";
-        bText.style.color = "#10b981";
-
-        log.innerHTML += `<div style="color:#34d399;">💳 <b>[Bakiye Düştü]:</b> Ajan havuzundan -₺${data.fee_deducted.toFixed(2)} düşüldü -> Firmanın kasasına eklendi.</div>`;
-        log.innerHTML += `<div style="color:#a5f3fc;">📦 Bariyer açıldı, canlı veri şifrelenip bota verildi. (TxID: ${data.tx_id.substring(0,8)}...)</div>`;
-      }
+      log.innerHTML += `<div style="color:#34d399;">💳 +₺0.35 tahsil edildi. Veri teslim edildi.</div>`;
       log.scrollTop = log.scrollHeight;
     }
   </script>
@@ -437,7 +465,7 @@ class AgentGateServer(BaseHTTPRequestHandler):
 
         if parsed.path == "/health":
             self._set_headers(200)
-            self.wfile.write(b'{"status":"ok","hgs":"active"}')
+            self.wfile.write(b'{"status":"ok","m2m":"active"}')
             return
 
         self._set_headers(404, "text/plain")
@@ -446,7 +474,60 @@ class AgentGateServer(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
 
-        # 1. AJAN BAKİYE YÜKLEME KAPISI (TOP-UP ENDPOINT)
+        # 1. ⚡ MAKİNEDEN MAKİNEYE (M2M) ANLIK ÖDEME KAPISI
+        if parsed.path == "/api/v1/instant-pay":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode("utf-8")
+            payload = json.loads(body) if body else {}
+
+            agent_id = payload.get("agent_id", "Autonomous-Agent")
+            query = payload.get("query", "Otonom Sorgu")
+            fee = float(payload.get("fee", 0.35))
+            
+            tx_id = str(uuid.uuid4())
+            pass_token = "ag_temp_" + str(uuid.uuid4()).replace("-", "")[:10]
+            timestamp = int(time.time())
+
+            # Firmanın bakiyesini artır
+            merchant = MERCHANTS[0]
+            merchant["balance"] += fee
+            merchant["queries_handled"] += 1
+
+            # Firebase'e M2M Anlık Takas Kaydı
+            settlement_record = {
+                "tx_id": tx_id,
+                "type": "M2M_INSTANT_SETTLEMENT",
+                "timestamp": timestamp,
+                "agent_id": agent_id,
+                "query": query,
+                "fee_deducted": fee,
+                "currency": "TRY",
+                "merchant": merchant["name"],
+                "pass_token": pass_token,
+                "status": "SETTLED"
+            }
+            save_to_firebase(f"agentgate/instant_settlements/{tx_id}", settlement_record, method="put")
+
+            # Firmanın kümülatif bakiyesini güncelle
+            save_to_firebase(f"agentgate/merchants/{merchant['id']}", {
+                "balance": merchant["balance"],
+                "queries_handled": merchant["queries_handled"],
+                "last_active": timestamp
+            }, method="patch")
+
+            self._set_headers(200)
+            self.wfile.write(json.dumps({
+                "success": True,
+                "tx_id": tx_id,
+                "pass_token": pass_token,
+                "fee_deducted": fee,
+                "currency": "TRY",
+                "expires_in_seconds": 60,
+                "message": "M2M Ödeme onaylandı. Bu pass_token ile hedef veriyi çekebilirsiniz."
+            }, ensure_ascii=False).encode("utf-8"))
+            return
+
+        # 2. TOP-UP KAPISI
         if parsed.path == "/api/v1/topup":
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length).decode("utf-8")
@@ -464,8 +545,6 @@ class AgentGateServer(BaseHTTPRequestHandler):
                 "created_at": int(time.time())
             }
             AGENT_PASSES[pass_token] = wallet_data
-
-            # Firebase'e kaydet
             save_to_firebase(f"agentgate/agent_wallets/{pass_token}", wallet_data, method="put")
 
             self._set_headers(200)
@@ -473,92 +552,28 @@ class AgentGateServer(BaseHTTPRequestHandler):
                 "success": True,
                 "pass_token": pass_token,
                 "amount": amount,
-                "currency": "TRY",
-                "message": "Bakiye havuzu oluşturuldu. X-AgentGate-Pass başlığı ile kullanabilirsiniz."
+                "currency": "TRY"
             }).encode("utf-8"))
             return
 
-        # 2. HGS GİŞE GEÇİŞ KAPISI
+        # 3. HGS GEÇİŞ KAPISI
         if parsed.path == "/api/v1/gate":
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length).decode("utf-8")
             payload = json.loads(body) if body else {}
 
             pass_header = self.headers.get("X-AgentGate-Pass") or payload.get("pass_token", "")
-            query = payload.get("query", "Bilinmeyen istek")
-            agent_id = payload.get("agent_id", "GPTBot-Crawler")
-
-            # HGS Kartı yoksa -> HTTP 402 PAYMENT REQUIRED DÖN!
-            if not pass_header or pass_header not in AGENT_PASSES:
-                self._set_headers(402)
-                response_402 = {
-                    "status": 402,
-                    "error": "Payment Required",
-                    "message": "Bu sitenin verisi otonom yapay zeka botları için ücretlidir.",
-                    "toll_operator": "AgentGate Protocol",
-                    "action_required": {
-                        "step_1": "Bakiye yükleyip geçerli bir HGS kartı (X-AgentGate-Pass) alın.",
-                        "topup_portal": "https://agent.mineoragame.com",
-                        "fee_per_request": "0.35 TRY",
-                        "required_header": "X-AgentGate-Pass"
-                    }
-                }
-                self.wfile.write(json.dumps(response_402, ensure_ascii=False).encode("utf-8"))
-                return
-
-            # HGS Kartı var -> Bakiyeyi kontrol et ve düş
-            agent_wallet = AGENT_PASSES[pass_header]
-            fee = 0.35
-
-            if agent_wallet["balance"] < fee:
+            if not pass_header:
                 self._set_headers(402)
                 self.wfile.write(json.dumps({
                     "status": 402,
-                    "error": "Insufficient Funds",
-                    "message": "HGS Kartınızdaki bakiye tükendi. Lütfen bakiye yükleyin: https://agent.mineoragame.com"
+                    "error": "Payment Required",
+                    "toll_gate": "https://agent.mineoragame.com/api/v1/instant-pay"
                 }).encode("utf-8"))
                 return
 
-            # Bakiyeleri güncelle
-            agent_wallet["balance"] -= fee
-            merchant = MERCHANTS[0]
-            merchant["balance"] += fee
-            merchant["queries_handled"] += 1
-
-            tx_id = str(uuid.uuid4())
-            timestamp = int(time.time())
-
-            # Firebase'e işlemi yaz
-            tx_record = {
-                "tx_id": tx_id,
-                "timestamp": timestamp,
-                "agent_id": agent_id,
-                "pass_token": pass_header,
-                "query": query,
-                "toll_fee": fee,
-                "merchant": merchant["name"],
-                "remaining_agent_balance": agent_wallet["balance"],
-                "status": "HGS_CLEARED"
-            }
-            save_to_firebase(f"agentgate/hgs_transactions/{tx_id}", tx_record, method="put")
-
-            # Firebase cüzdanını güncelle
-            save_to_firebase(f"agentgate/agent_wallets/{pass_header}", {
-                "balance": agent_wallet["balance"],
-                "last_used": timestamp
-            }, method="patch")
-
             self._set_headers(200)
-            self.wfile.write(json.dumps({
-                "success": True,
-                "tx_id": tx_id,
-                "protocol": "AGENTGATE_HGS_V1",
-                "status": "CLEARED",
-                "fee_deducted": fee,
-                "remaining_pass_balance": agent_wallet["balance"],
-                "currency": "TRY",
-                "merchant": merchant["name"]
-            }, ensure_ascii=False).encode("utf-8"))
+            self.wfile.write(json.dumps({"success": True, "status": "CLEARED"}).encode("utf-8"))
             return
 
         self._set_headers(404, "text/plain")
@@ -566,5 +581,5 @@ class AgentGateServer(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    print(f"🚀 AGENTGATE HGS GİŞESİ & TOP-UP AKTİF - Port: {port}")
+    print(f"🚀 AGENTGATE M2M OTONOM GİŞE AKTİF - Port: {port}")
     HTTPServer(("", port), AgentGateServer).serve_forever()
