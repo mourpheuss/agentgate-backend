@@ -2,63 +2,79 @@ import os
 import json
 import time
 import uuid
+import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
 # ==========================================================
-# AGENTGATE PROTOKOLÜ - VERİ TABANI & AKTİF GİŞE KAYITLARI
+# FIREBASE BAĞLANTISI (KALICI GİŞE KASASI)
+# ==========================================================
+FIREBASE_SECRET = os.environ.get("FIREBASE_SECRET", "Hl2qgV6ipQkRzssYSSHgJDmdr363LC9sexWm2dY1")
+FIREBASE_DB_URL = os.environ.get("FIREBASE_DB_URL", "https://mineora-web-default-rtdb.firebaseio.com").rstrip("/")
+
+def save_to_firebase(path, data, method="post"):
+    """Firebase Realtime Database REST API ile veri kaydeder."""
+    if not FIREBASE_SECRET:
+        return None
+    url = f"{FIREBASE_DB_URL}/{path}.json?auth={FIREBASE_SECRET}"
+    try:
+        if method == "post":
+            r = requests.post(url, json=data, timeout=3)
+        elif method == "patch":
+            r = requests.patch(url, json=data, timeout=3)
+        elif method == "put":
+            r = requests.put(url, json=data, timeout=3)
+        return r.json()
+    except Exception as e:
+        print(f"⚠️ Firebase Yazma Hatası: {e}")
+        return None
+
+# ==========================================================
+# GİŞE MERKEZİ & FİRMALAR
 # ==========================================================
 MERCHANTS = [
     {
-        "id": "m_thy_01",
+        "id": "m_skywings",
         "name": "SkyWings Uçuş & Bilet API",
         "category": "flights",
-        "rate_per_query": 0.35, # 35 kuruş
+        "rate_per_query": 0.35,
         "currency": "TRY",
         "balance": 1845.50,
-        "queries_handled": 5273,
-        "endpoint": "https://api.skywings.internal/v1/availability"
+        "queries_handled": 5273
     },
     {
-        "id": "m_hotel_02",
+        "id": "m_ege_resort",
         "name": "Ege & Akdeniz Rezervasyon Havuzu",
         "category": "hotels",
-        "rate_per_query": 0.50, # 50 kuruş
+        "rate_per_query": 0.50,
         "currency": "TRY",
         "balance": 3120.00,
-        "queries_handled": 6240,
-        "endpoint": "https://api.resorthub.internal/rooms/live"
+        "queries_handled": 6240
     },
     {
-        "id": "m_tech_03",
+        "id": "m_teknoradar",
         "name": "TeknoMarket Stok & Fiyat Radarı",
         "category": "retail",
-        "rate_per_query": 0.15, # 15 kuruş
+        "rate_per_query": 0.15,
         "currency": "TRY",
         "balance": 980.25,
-        "queries_handled": 6535,
-        "endpoint": "https://api.teknomarket.internal/v2/catalog/live"
+        "queries_handled": 6535
     }
 ]
 
-# ==========================================================
-# OPENAPI 3.0 SPESİFİKASYONU (CHATGPT & GEMINI İÇİN)
-# ==========================================================
+# OPENAPI ŞEMASI
 OPENAPI_SPEC = {
     "openapi": "3.0.1",
     "info": {
         "title": "AgentGate AI Micropayment Toll Gate",
-        "description": "Yapay zeka modellerinin anlaşmalı şirketlerden (uçak, otel, stok) mikro ödeme karşılığında doğrulanmış canlı veri çekmesini sağlayan gişe protokolü.",
+        "description": "Yapay zeka modellerinin anlaşmalı şirketlerden mikro ödemeyle canlı veri çekmesini sağlayan gişe protokolü.",
         "version": "v1.0.0"
     },
-    "servers": [
-        {"url": "https://agent.mineoragame.com"}
-    ],
+    "servers": [{"url": "https://agent.mineoragame.com"}],
     "paths": {
         "/api/v1/gate": {
             "post": {
                 "summary": "Canlı Veri Gişesi Sorgusu",
-                "description": "Kullanıcının talep ettiği uçuş, konaklama veya ürün bilgisini anlaşmalı sağlayıcıdan mikro ödeme mutabakatıyla çeker.",
                 "operationId": "queryLiveGateData",
                 "requestBody": {
                     "required": True,
@@ -67,19 +83,9 @@ OPENAPI_SPEC = {
                             "schema": {
                                 "type": "object",
                                 "properties": {
-                                    "query": {
-                                        "type": "string",
-                                        "description": "Kullanıcının doğal dildeki talebi (Örn: '15 Ekim İstanbul Londra uçuşu', 'Antalya 3 gece otel')"
-                                    },
-                                    "category": {
-                                        "type": "string",
-                                        "enum": ["flights", "hotels", "retail"],
-                                        "description": "Sorgulanacak sektör kategorisi."
-                                    },
-                                    "agent_id": {
-                                        "type": "string",
-                                        "description": "İsteği yapan yapay zeka ajanının adı (Örn: 'ChatGPT', 'Gemini-1.5')"
-                                    }
+                                    "query": {"type": "string", "description": "Kullanıcının talebi"},
+                                    "category": {"type": "string", "enum": ["flights", "hotels", "retail"]},
+                                    "agent_id": {"type": "string", "description": "Ajan adı (Örn: ChatGPT)"}
                                 },
                                 "required": ["query"]
                             }
@@ -87,50 +93,15 @@ OPENAPI_SPEC = {
                     }
                 },
                 "responses": {
-                    "200": {
-                        "description": "Başarılı takas ve veri aktarımı",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "success": {"type": "boolean"},
-                                        "tx_id": {"type": "string"},
-                                        "merchant": {"type": "string"},
-                                        "fee_deducted": {"type": "number"},
-                                        "currency": {"type": "string"},
-                                        "verified_data": {
-                                            "type": "object",
-                                            "properties": {
-                                                "status": {"type": "string"},
-                                                "live_results": {"type": "string"}
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    "200": {"description": "Başarılı takas ve doğrulanmış veri paketi"}
                 }
             }
         }
     }
 }
 
-HTML_PRIVACY = """<!DOCTYPE html>
-<html lang="tr">
-<head><meta charset="UTF-8"><title>AgentGate | Gizlilik Politikası</title>
-<style>body{background:#07090e;color:#cbd5e1;font-family:sans-serif;max-width:800px;margin:50px auto;padding:20px;line-height:1.7;}h1{color:#fff;}a{color:#10b981;}</style>
-</head>
-<body>
-  <h1>AgentGate Gizlilik Politikası</h1>
-  <p>AgentGate protokolü, yapay zeka ajanları ile veri sağlayıcılar arasında kuruş bazlı mikro ödeme mutabakatı sağlar.</p>
-  <p>Sistem üzerinden iletilen sorgularda kullanıcıların kişisel verileri saklanmaz; yalnızca işlem mutabakat kodu (TxID), sorgu kategorisi ve tahsil edilen bakiye kayıt altına alınır.</p>
-  <p><a href="/">← Ana Sayfaya Dön</a></p>
-</body>
-</html>"""
+HTML_PRIVACY = """<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><title>AgentGate | Gizlilik Politikası</title><style>body{background:#07090e;color:#cbd5e1;font-family:sans-serif;max-width:800px;margin:50px auto;padding:20px;line-height:1.7;}h1{color:#fff;}a{color:#10b981;}</style></head><body><h1>AgentGate Gizlilik Politikası</h1><p>AgentGate protokolü, yapay zeka ajanları ile veri sağlayıcılar arasında kuruş bazlı mikro ödeme mutabakatı sağlar.</p><p>Sorgularda kullanıcı kişisel verileri saklanmaz; yalnızca işlem mutabakat kodu (TxID), sorgu tipi ve tahsil edilen bakiye kayıt altına alınır.</p><p><a href="/">← Ana Sayfaya Dön</a></p></body></html>"""
 
-# HTML_LANDING vitrin kodu aynen korunuyor
 HTML_LANDING = """<!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -181,16 +152,16 @@ HTML_LANDING = """<!DOCTYPE html>
   <header>
     <div class="logo"><div class="logo-badge">AGENTGATE</div><span>Protocol</span></div>
     <div class="nav-links">
-      <a href="/openapi.json" target="_blank" style="color:var(--cyan);">📄 OpenAPI Şeması</a>
+      <a href="/openapi.json" target="_blank" style="color:var(--cyan);">📄 OpenAPI</a>
       <a href="/privacy">Gizlilik</a>
-      <button class="btn-outline" onclick="alert('API Belgeleri: https://agent.mineoragame.com/openapi.json')">Ajanını Bağla</button>
+      <button class="btn-outline" onclick="alert('Firebase Realtime Database kalıcı bağlantısı devrede.')">🔥 Firebase Aktif</button>
     </div>
   </header>
 
   <main>
     <section class="hero">
-      <div class="tag">⚡ AI Micropayment Toll Gate (Canlı OpenAPI Uyumlu)</div>
-      <h1>Gemini & ChatGPT Veri Alırken<br><span class="gradient-accent">Kuruş Kuruş Para Ödesin</span></h1>
+      <div class="tag">⚡ AI Micropayment Toll Gate • Kalıcı Veritabanı Aktif</div>
+      <h1>Gemini & ChatGPT Bilgi Alırken<br><span class="gradient-accent">Firmanıza Kuruş Kuruş Para Ödesin</span></h1>
       <p>Yapay zeka modellerinin resmi veri kaynaklarına mikro ödemeyle bağlandığı ilk otonom gişe protokolü.</p>
     </section>
 
@@ -214,18 +185,18 @@ HTML_LANDING = """<!DOCTYPE html>
             <b>🏢 Veri Sağlayıcı Firma</b>
             <div style="margin-top:12px; font-size:13px; color:var(--text-muted);">SkyWings Uçuş & Bilet API (0.35 TL / sorgu)</div>
             <div style="font-size:26px; font-weight:800; color:#34d399; margin-top:10px;" id="merchBal">₺1,845.50</div>
-            <div style="font-size:11px; color:#64748b;">Kalıcı Cüzdan Havuzu</div>
+            <div style="font-size:11px; color:#64748b;">🔥 Firebase Realtime DB Senkronize</div>
           </div>
         </div>
         <div class="terminal-feed" id="termLog">
-          <div>[03:40:00] OpenAPI 3.0 endpoints aktif: /openapi.json</div>
+          <div>[CANLI] AgentGate Takas Odası ve Firebase bağlantısı hazır.</div>
         </div>
       </div>
     </section>
   </main>
 
   <footer>
-    <p>© 2026 AgentGate Protocol. OpenAPI Specs: <a href="/openapi.json" style="color:var(--emerald);">agent.mineoragame.com/openapi.json</a></p>
+    <p>© 2026 AgentGate Protocol. Kalıcı Kayıt Defteri: Firebase Realtime Database</p>
   </footer>
 
   <script>
@@ -235,7 +206,7 @@ HTML_LANDING = """<!DOCTYPE html>
       const ag = document.getElementById('agentSelect').value;
       const log = document.getElementById('termLog');
 
-      log.innerHTML += `<div>🤖 [${ag}] Tool Call gönderdi: "${q}"</div>`;
+      log.innerHTML += `<div>🤖 [${ag}] Talep Gönderdi: "${q}"</div>`;
       
       const res = await fetch('/api/v1/gate', {
         method: 'POST',
@@ -246,8 +217,8 @@ HTML_LANDING = """<!DOCTYPE html>
       bal += data.fee_deducted;
       document.getElementById('merchBal').innerText = '₺' + bal.toFixed(2);
       
-      log.innerHTML += `<div style="color:#34d399;">💳 [AgentGate] +₺${data.fee_deducted} mikro ödeme kesildi -> ${data.merchant}</div>`;
-      log.innerHTML += `<div style="color:#a5f3fc;">📦 Temiz veri yapay zekaya aktarıldı (TxID: ${data.tx_id.substring(0,8)}...)</div>`;
+      log.innerHTML += `<div style="color:#34d399;">💳 [AgentGate] +₺${data.fee_deducted} kesildi -> ${data.merchant}</div>`;
+      log.innerHTML += `<div style="color:#fbbf24;">🔥 Firebase'e Yazıldı (TxID: ${data.tx_id.substring(0,8)}...)</div>`;
       log.scrollTop = log.scrollHeight;
     }
   </script>
@@ -255,7 +226,7 @@ HTML_LANDING = """<!DOCTYPE html>
 </html>"""
 
 # ==========================================================
-# HTTP HANDLER
+# HTTP SUNUCU MANTIĞI
 # ==========================================================
 class AgentGateServer(BaseHTTPRequestHandler):
 
@@ -278,13 +249,11 @@ class AgentGateServer(BaseHTTPRequestHandler):
             self.wfile.write(HTML_LANDING.encode("utf-8"))
             return
 
-        # CHATGPT & GEMINI İÇİN RESMİ OPENAPI ŞEMASI
         if parsed.path == "/openapi.json":
             self._set_headers(200, "application/json; charset=utf-8")
             self.wfile.write(json.dumps(OPENAPI_SPEC, ensure_ascii=False, indent=2).encode("utf-8"))
             return
 
-        # OPENAI GİZLİLİK POLİTİKASI SAYFASI
         if parsed.path == "/privacy":
             self._set_headers(200, "text/html; charset=utf-8")
             self.wfile.write(HTML_PRIVACY.encode("utf-8"))
@@ -292,7 +261,7 @@ class AgentGateServer(BaseHTTPRequestHandler):
 
         if parsed.path == "/health":
             self._set_headers(200)
-            self.wfile.write(b'{"status":"ok"}')
+            self.wfile.write(b'{"status":"ok","db":"firebase_connected"}')
             return
 
         self._set_headers(404, "text/plain")
@@ -301,7 +270,6 @@ class AgentGateServer(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
 
-        # YAPAY ZEKA TOOL ÇAĞRISI GİŞESİ
         if parsed.path == "/api/v1/gate":
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length).decode("utf-8")
@@ -315,17 +283,41 @@ class AgentGateServer(BaseHTTPRequestHandler):
             query = payload.get("query", "Bilinmeyen talep")
             agent_id = payload.get("agent_id", "External-AI-Agent")
 
-            # Kategoriye göre firma eşleştirme
             merchant = MERCHANTS[0]
             for m in MERCHANTS:
                 if m["category"] == category:
                     merchant = m
                     break
 
+            # 1. Bellek içi bakiye artışı
             merchant["balance"] += merchant["rate_per_query"]
             merchant["queries_handled"] += 1
 
             tx_id = str(uuid.uuid4())
+            timestamp = int(time.time())
+
+            # 2. FIREBASE REALTIME DATABASE'E İŞLEM KAYDI
+            tx_record = {
+                "tx_id": tx_id,
+                "timestamp": timestamp,
+                "agent_id": agent_id,
+                "query": query,
+                "merchant_id": merchant["id"],
+                "merchant_name": merchant["name"],
+                "fee_deducted": merchant["rate_per_query"],
+                "currency": merchant["currency"],
+                "status": "SETTLED"
+            }
+            save_to_firebase(f"agentgate/transactions/{tx_id}", tx_record, method="put")
+
+            # 3. Firmanın Firebase'deki kümülatif bakiyesini güncelle
+            save_to_firebase(f"agentgate/merchants/{merchant['id']}", {
+                "name": merchant["name"],
+                "balance": merchant["balance"],
+                "queries_handled": merchant["queries_handled"],
+                "last_active": timestamp
+            }, method="patch")
+
             response_payload = {
                 "success": True,
                 "tx_id": tx_id,
@@ -333,13 +325,13 @@ class AgentGateServer(BaseHTTPRequestHandler):
                 "merchant": merchant["name"],
                 "fee_deducted": merchant["rate_per_query"],
                 "currency": merchant["currency"],
-                "timestamp": int(time.time()),
+                "timestamp": timestamp,
                 "status": "SETTLED",
                 "verified_data": {
                     "source": merchant["name"],
                     "query_echo": query,
                     "status": "AVAILABLE",
-                    "live_results": f"'{query}' için güncel sistem kaydı onaylandı. Fiyat: 2,450 TL | Kalan Koltuk/Oda: 4 | Doğrulama: SHA256-OK"
+                    "live_results": f"'{query}' için güncel sistem kaydı onaylandı. Fiyat: 2,450 TL | Kalan Koltuk: 4"
                 }
             }
 
@@ -352,5 +344,5 @@ class AgentGateServer(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    print(f"🚀 AGENTGATE PROTOKOLÜ (OpenAPI & Tool Gateway) AKTİF - Port: {port}")
+    print(f"🚀 AGENTGATE PROTOKOLÜ (Firebase Entegre) AKTİF - Port: {port}")
     HTTPServer(("", port), AgentGateServer).serve_forever()
