@@ -1,435 +1,525 @@
 import os
+import json
 import time
 import uuid
-import json
-import urllib.parse
-import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from legacy_bridge import LegacyWebBridge
+from urllib.parse import parse_qs, urlparse
 
-USER_ACCOUNTS = {
-    "user_ersin": {
-        "balance": 5000.00,
-        "daily_limit": 5000.00,
-        "allowed_categories": ["retail", "travel", "finance"]
+# ==========================================================
+# AGENTGATE PROTOKOLÜ - VERİ TABANI & AKTİF GİŞE KAYITLARI
+# ==========================================================
+MERCHANTS = [
+    {
+        "id": "m_thy_01",
+        "name": "SkyWings Uçuş & Bilet API",
+        "category": "Ulaşım & Seyahat",
+        "rate_per_query": 0.35, # 35 kuruş
+        "currency": "TRY",
+        "balance": 1845.50,
+        "queries_handled": 5273,
+        "endpoint": "https://api.skywings.internal/v1/availability"
+    },
+    {
+        "id": "m_hotel_02",
+        "name": "Ege & Akdeniz Rezervasyon Havuzu",
+        "category": "Konaklama & Turizm",
+        "rate_per_query": 0.50, # 50 kuruş
+        "currency": "TRY",
+        "balance": 3120.00,
+        "queries_handled": 6240,
+        "endpoint": "https://api.resorthub.internal/rooms/live"
+    },
+    {
+        "id": "m_tech_03",
+        "name": "TeknoMarket Stok & Fiyat Radarı",
+        "category": "E-Ticaret & Donanım",
+        "rate_per_query": 0.15, # 15 kuruş
+        "currency": "TRY",
+        "balance": 980.25,
+        "queries_handled": 6535,
+        "endpoint": "https://api.teknomarket.internal/v2/catalog/live"
     }
-}
-
-MERCHANT_ACCOUNTS = {
-    "store_sneakers_inc": 0.00,
-    "store_trendpabuc": 0.00,
-    "AGENTGATE_TREASURY": 0.00
-}
-
-MERCHANT_REGISTRY = [
-    {"merchant_id": "store_sneakers_inc", "name": "Sneakers Inc.", "url": "http://127.0.0.1:9001"},
-    {"merchant_id": "store_trendpabuc", "name": "TrendPabuç Outlet", "url": "http://127.0.0.1:9002"}
 ]
 
-MISSION_TOKENS = {}
-RECEIPTS = []
-LOST_SALES = []
-COMMISSION_RATE = 0.05
-web_bridge = LegacyWebBridge()
-
-# =====================================================================
-# MOBİL TELEFONLAR İÇİN CHATGPT / GEMINI TARZI AI CHAT ARAYÜZÜ
-# =====================================================================
-CHAT_UI_HTML = """<!DOCTYPE html>
+HTML_LANDING = """<!DOCTYPE html>
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
-  <title>AgentGate AI | Mobil Alışveriş Asistanı</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentGate | Otonom Yapay Zeka Mikro Gişe Protokolü</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: 'Inter', sans-serif; }
-    .chat-bubble { animation: fadeIn 0.25s ease-out; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    :root {
+      --bg: #07090e;
+      --card-bg: rgba(16, 21, 33, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --emerald: #10b981;
+      --emerald-glow: rgba(16, 185, 129, 0.25);
+      --cyan: #06b6d4;
+      --purple: #8b5cf6;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      overflow-x: hidden;
+      line-height: 1.6;
+    }
+    .grid-bg {
+      position: fixed; inset: 0; pointer-events: none;
+      background-image: radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px);
+      background-size: 32px 32px;
+      mask-image: radial-gradient(circle at 50% 30%, black 40%, transparent 80%);
+      z-index: 0;
+    }
+    header {
+      position: relative; z-index: 10;
+      max-width: 1200px; margin: 0 auto;
+      padding: 24px 20px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .logo {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 22px; font-weight: 800; letter-spacing: -0.5px;
+    }
+    .logo-badge {
+      background: linear-gradient(135deg, var(--emerald), var(--cyan));
+      color: #000; font-weight: 900; font-size: 14px;
+      padding: 4px 10px; border-radius: 8px;
+    }
+    .nav-links a {
+      color: var(--text-muted); text-decoration: none; font-size: 14px;
+      font-weight: 500; margin-left: 24px; transition: color 0.2s;
+    }
+    .nav-links a:hover { color: #fff; }
+    .btn-outline {
+      border: 1px solid var(--card-border); background: rgba(255,255,255,0.03);
+      color: #fff; padding: 8px 16px; border-radius: 10px; font-size: 13px;
+      cursor: pointer; transition: all 0.2s;
+    }
+    .btn-outline:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); }
+
+    /* HERO */
+    .hero {
+      position: relative; z-index: 1;
+      max-width: 1000px; margin: 60px auto 40px; text-align: center;
+      padding: 0 20px;
+    }
+    .tag {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3);
+      color: var(--emerald); padding: 6px 14px; border-radius: 999px;
+      font-size: 13px; font-weight: 600; margin-bottom: 24px;
+    }
+    .tag span { width: 8px; height: 8px; border-radius: 50%; background: var(--emerald); display: inline-block; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+    h1 {
+      font-size: clamp(36px, 6vw, 64px); font-weight: 800; letter-spacing: -1.5px;
+      line-height: 1.15; margin-bottom: 24px;
+    }
+    .gradient-text {
+      background: linear-gradient(135deg, #fff 30%, #94a3b8 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .gradient-accent {
+      background: linear-gradient(135deg, var(--emerald) 0%, var(--cyan) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hero p {
+      font-size: 18px; color: var(--text-muted); max-width: 740px; margin: 0 auto 36px;
+      font-weight: 400;
+    }
+
+    /* SIMULATOR CONTAINER */
+    .sim-wrapper {
+      position: relative; z-index: 1;
+      max-width: 1100px; margin: 0 auto 80px; padding: 0 20px;
+    }
+    .sim-card {
+      background: var(--card-bg);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      padding: 32px;
+      box-shadow: 0 30px 60px rgba(0,0,0,0.5);
+    }
+    .sim-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 28px; padding-bottom: 16px; border-bottom: 1px solid var(--card-border);
+    }
+    .sim-title { font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .sim-grid {
+      display: grid; grid-template-columns: 1fr 120px 1fr;
+      gap: 20px; align-items: center;
+    }
+    @media(max-width: 850px) {
+      .sim-grid { grid-template-columns: 1fr; }
+      .bridge-col { transform: rotate(90deg); margin: 20px 0; }
+    }
+    .box {
+      background: rgba(8, 12, 20, 0.8);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 16px; padding: 20px;
+    }
+    .box-title {
+      font-size: 13px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 14px;
+      display: flex; justify-content: space-between;
+    }
+    .form-group { margin-bottom: 14px; }
+    .form-label { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; display: block; }
+    select, input {
+      width: 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--card-border);
+      color: #fff; padding: 10px 14px; border-radius: 10px; font-family: inherit; font-size: 14px;
+      outline: none; transition: border-color 0.2s;
+    }
+    select:focus, input:focus { border-color: var(--cyan); }
+    .btn-fire {
+      width: 100%; background: linear-gradient(135deg, var(--emerald), #059669);
+      color: #000; font-weight: 700; border: none; padding: 12px;
+      border-radius: 10px; cursor: pointer; font-size: 14px; margin-top: 10px;
+      transition: transform 0.1s, box-shadow 0.2s;
+    }
+    .btn-fire:hover { transform: translateY(-1px); box-shadow: 0 10px 25px var(--emerald-glow); }
+    .bridge-col {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center;
+    }
+    .bridge-node {
+      width: 72px; height: 72px; border-radius: 50%;
+      background: linear-gradient(135deg, rgba(6,182,212,0.2), rgba(16,185,129,0.2));
+      border: 1px solid var(--emerald);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 26px; box-shadow: 0 0 30px var(--emerald-glow);
+    }
+    .bridge-label { font-size: 11px; font-weight: 700; color: var(--emerald); margin-top: 10px; }
+    .terminal-feed {
+      margin-top: 24px; background: #04060a; border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 14px; padding: 16px; font-family: 'JetBrains Mono', monospace;
+      font-size: 13px; color: #a5f3fc; max-height: 180px; overflow-y: auto;
+    }
+    .terminal-feed span.time { color: #64748b; margin-right: 8px; }
+    .terminal-feed span.fee { color: #34d399; font-weight: 700; }
+
+    /* HOW IT WORKS */
+    .section-features {
+      max-width: 1100px; margin: 0 auto 100px; padding: 0 20px;
+    }
+    .section-head { text-align: center; margin-bottom: 48px; }
+    .section-head h2 { font-size: 32px; font-weight: 800; letter-spacing: -0.5px; }
+    .cards-row {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;
+    }
+    .feat-card {
+      background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: 20px; padding: 28px;
+    }
+    .feat-icon {
+      font-size: 28px; margin-bottom: 16px; display: inline-block;
+      padding: 12px; border-radius: 14px; background: rgba(255,255,255,0.03);
+    }
+    .feat-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 10px; }
+    .feat-card p { font-size: 14px; color: var(--text-muted); }
+
+    /* FOOTER */
+    footer {
+      border-top: 1px solid var(--card-border); padding: 40px 20px;
+      text-align: center; font-size: 13px; color: var(--text-muted);
+    }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 flex flex-col h-screen overflow-hidden">
-  
-  <!-- Üst Bar -->
-  <header class="p-4 border-b border-slate-800 bg-slate-900/80 backdrop-blur flex justify-between items-center z-10">
-    <div class="flex items-center gap-2.5">
-      <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-emerald-400 flex items-center justify-center font-bold text-xs shadow-lg shadow-indigo-500/30">
-        AI
-      </div>
-      <div>
-        <h1 class="text-sm font-bold text-white flex items-center gap-1.5 leading-none">
-          AgentGate Asistanı
-          <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
-        </h1>
-        <span class="text-[10px] text-slate-400 font-mono">A-Commerce Otonom Gişe</span>
-      </div>
+<body>
+  <div class="grid-bg"></div>
+
+  <header>
+    <div class="logo">
+      <div class="logo-badge">AGENTGATE</div>
+      <span>Protocol</span>
     </div>
-    <a href="/dashboard" class="text-[11px] font-mono bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 px-2.5 py-1 rounded-lg transition">
-      Panel ↗
-    </a>
+    <div class="nav-links">
+      <a href="#demo">Canlı Simülatör</a>
+      <a href="#how">Nasıl Çalışır?</a>
+      <a href="#merchants">Anlaşmalı Firmalar</a>
+      <button class="btn-outline" onclick="openPartnerModal()">Firmanı Gişeye Ekle</button>
+    </div>
   </header>
 
-  <!-- Sohbet Mesaj Alanı -->
-  <main id="chat-box" class="flex-1 overflow-y-auto p-4 space-y-3">
-    <!-- Asistan Karşılama -->
-    <div class="chat-bubble flex gap-2.5 max-w-[88%]">
-      <div class="w-6 h-6 rounded-full bg-indigo-600 flex-shrink-0 flex items-center justify-center text-[10px] font-bold mt-1">G</div>
-      <div class="bg-slate-900 border border-slate-800 p-3 rounded-2xl rounded-tl-sm text-xs text-slate-200 leading-relaxed shadow-sm">
-        Merhaba Ersin! Ben AgentGate otonom alışveriş asistanın. İstediğin ürünü ve bütçeni söyle, tüm piyasayı tarayıp en iyi fiyatı getireyim.
-        <div class="mt-2 text-[10px] text-indigo-400 font-mono">Örnek: "42 numara air runner bütçem 1500 tl"</div>
+  <main>
+    <section class="hero">
+      <div class="tag">
+        <span></span> Yapay Zeka Ajanları İçin Mikro Ödeme Gişesi (AI Toll Gate)
       </div>
-    </div>
+      <h1>
+        <span class="gradient-text">Gemini & ChatGPT Bilgi Alırken</span><br>
+        <span class="gradient-accent">Firmanıza Kuruş Kuruş Para Ödesin</span>
+      </h1>
+      <p>
+        Otonom yapay zekalar internetten bedava veri çekemez. AgentGate; otel, uçak, stok ve katalog verilerinizi otonom ajanlara açarak her bir sorguda firmanız adına anlık mikro ödeme tahsil eden köprüdür.
+      </p>
+    </section>
+
+    <!-- CANLI SİMÜLATÖR -->
+    <section class="sim-wrapper" id="demo">
+      <div class="sim-card">
+        <div class="sim-header">
+          <div class="sim-title">⚡ Canlı Gişe & Takas Simülatörü</div>
+          <div style="font-size:12px; color:var(--emerald); background:rgba(16,185,129,0.1); padding:4px 10px; border-radius:6px;">
+            CANLI MOTOR AKTİF
+          </div>
+        </div>
+
+        <div class="sim-grid">
+          <!-- 1. Taraf: Yapay Zeka Ajanı -->
+          <div class="box">
+            <div class="box-title">
+              <span>🤖 Talep Eden Yapay Zeka</span>
+              <span style="color:#06b6d4;">LLM / Agent</span>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Ajan Modeli</label>
+              <select id="agentSelect">
+                <option value="Gemini 1.5 Pro (Google Search Engine)">Google Gemini (Bilet & Ürün Ajanı)</option>
+                <option value="ChatGPT (OpenAI Search Agent)">ChatGPT (Kullanıcı Alışveriş Ajanı)</option>
+                <option value="Claude 3.5 Sonnet (Tool Runner)">Claude 3.5 (Otonom Araştırma Ajanı)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Kullanıcının Yapay Zekaya Verdiği Görev</label>
+              <input type="text" id="queryPrompt" value="İstanbul - Londra 12 Ekim en uygun uçuşu bul">
+            </div>
+            <button class="btn-fire" onclick="simulateGateTransaction()">Sorguyu Çalıştır & Gişeden Geçir</button>
+          </div>
+
+          <!-- Ortadaki Köprü: AgentGate -->
+          <div class="bridge-col">
+            <div class="bridge-node">💳</div>
+            <div class="bridge-label">AGENTGATE<br>MIKRO GİŞE</div>
+          </div>
+
+          <!-- 2. Taraf: Anlaşmalı Firma -->
+          <div class="box">
+            <div class="box-title">
+              <span>🏢 Veri Sağlayan Firma</span>
+              <span style="color:#10b981;">Merchant</span>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Anlaşmalı Firma Seçin</label>
+              <select id="merchantSelect" onchange="updateMerchantPreview()">
+                <option value="0">SkyWings Uçuş & Bilet API (0.35 TL / sorgu)</option>
+                <option value="1">Ege & Akdeniz Rezervasyon Havuzu (0.50 TL / sorgu)</option>
+                <option value="2">TeknoMarket Stok & Fiyat Radarı (0.15 TL / sorgu)</option>
+              </select>
+            </div>
+            <div style="background:rgba(255,255,255,0.02); border:1px solid var(--card-border); border-radius:10px; padding:12px; margin-top:8px;">
+              <div style="font-size:11px; color:var(--text-muted);">Firmanın Biriken Gişe Geliri:</div>
+              <div style="font-size:24px; font-weight:800; color:#34d399;" id="merchantBalance">₺1,845.50</div>
+              <div style="font-size:11px; color:#64748b;" id="merchantStats">5,273 yapay zeka sorgusu yanıtlandı</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Terminal Logları -->
+        <div class="terminal-feed" id="terminalLog">
+          <div><span class="time">[03:30:00]</span> Sistem hazır. Gemini ve ChatGPT sorguları için mikro gişe devrede.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- NASIL ÇALIŞIR -->
+    <section class="section-features" id="how">
+      <div class="section-head">
+        <h2>Yapay Zeka Dünyasının Yeni Para Akışı</h2>
+        <p style="color:var(--text-muted); margin-top:8px;">Şirketler için bedava veri çekilmesine son; yapay zekalar için temiz ve resmi veriye anında erişim.</p>
+      </div>
+
+      <div class="cards-row">
+        <div class="feat-card">
+          <div class="feat-icon">🎯</div>
+          <h3>1. Yapay Zekaya Özel Gişe</h3>
+          <p>Gemini ya da ChatGPT son kullanıcı için uçak bileti veya ürün aradığında doğrudan firmanızın veritabanına giremez. AgentGate gişesine çarpar.</p>
+        </div>
+        <div class="feat-card">
+          <div class="feat-icon">⚡</div>
+          <h3>2. Kuruş Bazında Otomatik Tahsilat</h3>
+          <p>Belirlediğiniz kriterlere göre (örneğin sorgu başı 25 kuruş veya $0.01) yapay zekadan anında mikro-ödeme kesilir ve firmanızın sanal cüzdanına aktarılır.</p>
+        </div>
+        <div class="feat-card">
+          <div class="feat-icon">🛡️</div>
+          <h3>3. Resmi ve Şifreli Veri Teslimi</h3>
+          <p>Ödeme mutabakatı sağlandığı milisaniyede firmanızın güncel fiyat, bilet veya stok verisi yapay zekaya json formatında teslim edilir.</p>
+        </div>
+      </div>
+    </section>
   </main>
 
-  <!-- Alt Giriş Çubuğu -->
-  <footer class="p-3 border-t border-slate-800 bg-slate-900/90 backdrop-blur">
-    <form id="chat-form" onsubmit="sendMessage(event)" class="flex gap-2 items-center">
-      <input 
-        type="text" 
-        id="user-input" 
-        autocomplete="off"
-        placeholder="Ürün ve bütçeni yaz..." 
-        class="flex-1 bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl px-4 py-3 text-xs text-white outline-none transition"
-      />
-      <button 
-        type="submit" 
-        id="send-btn"
-        class="bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold p-3 rounded-xl transition shadow-lg shadow-indigo-600/30 flex items-center justify-center">
-        <svg class="w-4 h-4 rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19V5m0 0l-7 7m7-7l7 7"/></svg>
-      </button>
-    </form>
+  <footer>
+    <p>© 2026 AgentGate Protocol. Otonom Ajanlar ve Şirketler Arası Mikro-Ödeme Altyapısı.</p>
+    <p style="margin-top:6px; font-size:11px; color:#475569;">API Gateway: https://agent.mineoragame.com/api/v1/gate</p>
   </footer>
 
   <script>
-    const chatBox = document.getElementById('chat-box');
-    const input = document.getElementById('user-input');
-    let lastRecommendation = null;
+    const merchants = [
+      { name: "SkyWings Uçuş & Bilet API", fee: 0.35, balance: 1845.50, queries: 5273 },
+      { name: "Ege & Akdeniz Rezervasyon", fee: 0.50, balance: 3120.00, queries: 6240 },
+      { name: "TeknoMarket Stok & Fiyat", fee: 0.15, balance: 980.25, queries: 6535 }
+    ];
 
-    function appendMessage(sender, text, isHtml = false) {
-      const msgDiv = document.createElement('div');
-      msgDiv.className = `chat-bubble flex gap-2.5 max-w-[88%] ${sender === 'user' ? 'ml-auto flex-row-reverse' : ''}`;
-      
-      const avatar = sender === 'user' 
-        ? '<div class="w-6 h-6 rounded-full bg-emerald-600 flex-shrink-0 flex items-center justify-center text-[10px] font-bold mt-1">E</div>'
-        : '<div class="w-6 h-6 rounded-full bg-indigo-600 flex-shrink-0 flex items-center justify-center text-[10px] font-bold mt-1">G</div>';
-      
-      const bubbleClass = sender === 'user'
-        ? 'bg-indigo-600 text-white p-3 rounded-2xl rounded-tr-sm text-xs leading-relaxed shadow-sm'
-        : 'bg-slate-900 border border-slate-800 p-3 rounded-2xl rounded-tl-sm text-xs text-slate-200 leading-relaxed shadow-sm';
-
-      msgDiv.innerHTML = `
-        ${avatar}
-        <div class="${bubbleClass}">
-          ${isHtml ? text : text.replace(/\\n/g, '<br>')}
-        </div>
-      `;
-      chatBox.appendChild(msgDiv);
-      chatBox.scrollTop = chatBox.scrollHeight;
+    function updateMerchantPreview() {
+      const idx = document.getElementById('merchantSelect').value;
+      const m = merchants[idx];
+      document.getElementById('merchantBalance').innerText = '₺' + m.balance.toFixed(2);
+      document.getElementById('merchantStats').innerText = m.queries.toLocaleString() + ' yapay zeka sorgusu yanıtlandı';
     }
 
-    async function sendMessage(e) {
-      e.preventDefault();
-      const text = input.value.trim();
-      if (!text) return;
+    async function simulateGateTransaction() {
+      const mIdx = document.getElementById('merchantSelect').value;
+      const m = merchants[mIdx];
+      const agent = document.getElementById('agentSelect').value;
+      const query = document.getElementById('queryPrompt').value;
+      const term = document.getElementById('terminalLog');
 
-      appendMessage('user', text);
-      input.value = '';
-
-      // Yükleniyor balonu
-      const loadingId = 'loading-' + Date.now();
-      const loadDiv = document.createElement('div');
-      loadDiv.id = loadingId;
-      loadDiv.className = 'chat-bubble flex gap-2.5 max-w-[88%]';
-      loadDiv.innerHTML = `
-        <div class="w-6 h-6 rounded-full bg-indigo-600 flex-shrink-0 flex items-center justify-center text-[10px] font-bold mt-1">G</div>
-        <div class="bg-slate-900 border border-slate-800 p-3 rounded-2xl text-xs text-slate-400 italic flex items-center gap-2">
-          <span class="inline-block w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span>
-          Piyasa ve AgentGate ağı taranıyor...
-        </div>
-      `;
-      chatBox.appendChild(loadDiv);
-      chatBox.scrollTop = chatBox.scrollHeight;
-
-      try {
-        // Numara ve ürün tespiti
-        const sizeMatch = text.match(/(\\d{2})\\s*(numara|beden)?/i);
-        const size = sizeMatch ? sizeMatch[1] : 42;
-        const query = text.toLowerCase().includes('air runner') ? 'air runner' : 'ayakkabı';
-
-        const res = await fetch(`/v1/ai/search?query=${encodeURIComponent(query)}&size=${size}`);
-        const data = await res.json();
-        document.getElementById(loadingId)?.remove();
-
-        if (data.recommended_product) {
-          lastRecommendation = data.recommended_product;
-          let reply = `Piyasadaki tüm mağazaları taradım! 🎯<br><br>`;
-          reply += `En avantajlı teklif: <strong>${lastRecommendation.merchant_name}</strong><br>`;
-          reply += `Ürün: <strong>${lastRecommendation.title} (${lastRecommendation.size} No)</strong><br>`;
-          reply += `Fiyat: <span class="text-emerald-400 font-bold text-sm">${Number(lastRecommendation.price).toFixed(2)} TL</span><br><br>`;
-          
-          if (data.lost_sale_warning) {
-            reply += `<span class="text-[10px] text-amber-400/90 block bg-amber-950/30 border border-amber-500/20 p-2 rounded-lg mb-2">
-              ⚠️ ${data.lost_sale_warning.lost_merchant} daha ucuzdu (${data.lost_sale_warning.offered_price} TL) ancak otonom satışa kapalı olduğu için tercih edilmedi.
-            </span>`;
-          }
-
-          reply += `<button onclick="confirmOrder()" class="w-full mt-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold py-2.5 rounded-xl text-xs uppercase tracking-wider transition shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-1.5">
-            <span>💳</span> Otonom Satın Alımı Onayla
-          </button>`;
-
-          appendMessage('assistant', reply, true);
-        } else {
-          appendMessage('assistant', 'Aradığınız kriterlere uygun ürün bulunamadı.');
-        }
-      } catch (err) {
-        document.getElementById(loadingId)?.remove();
-        appendMessage('assistant', 'Bir bağlantı hatası oluştu, lütfen tekrar deneyin.');
+      function log(msg) {
+        const time = new Date().toTimeString().split(' ')[0];
+        const line = document.createElement('div');
+        line.innerHTML = `<span class="time">[${time}]</span> ${msg}`;
+        term.appendChild(line);
+        term.scrollTop = term.scrollHeight;
       }
-    }
 
-    async function confirmOrder() {
-      if (!lastRecommendation) return;
-
-      appendMessage('user', 'Onaylıyorum, satın al.');
-
-      const loadingId = 'loading-buy-' + Date.now();
-      const loadDiv = document.createElement('div');
-      loadDiv.id = loadingId;
-      loadDiv.className = 'chat-bubble flex gap-2.5 max-w-[88%]';
-      loadDiv.innerHTML = `
-        <div class="w-6 h-6 rounded-full bg-indigo-600 flex-shrink-0 flex items-center justify-center text-[10px] font-bold mt-1">G</div>
-        <div class="bg-slate-900 border border-slate-800 p-3 rounded-2xl text-xs text-slate-400 italic flex items-center gap-2">
-          <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-          HTTP 402 gişesinden ödeme takası yapılıyor...
-        </div>
-      `;
-      chatBox.appendChild(loadDiv);
-      chatBox.scrollTop = chatBox.scrollHeight;
-
+      log(`🚨 <b>${agent}</b> istek başlattı: "${query}"`);
+      
+      // Gerçek Backend API'mize istek gönderelim
       try {
-        const res = await fetch('/v1/ai/buy', {
+        const res = await fetch('/api/v1/gate', {
           method: 'POST',
-          headers: {'Content-Type': 'application/json'},
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            user_id: 'user_ersin',
-            merchant_id: lastRecommendation.merchant_id,
-            sku: lastRecommendation.sku,
-            max_budget: 2000.0,
-            shipping_address: 'Atatürk Mah. Balıkesir'
+            agent_id: agent,
+            merchant_index: mIdx,
+            query: query
           })
         });
-        const order = await res.json();
-        document.getElementById(loadingId)?.remove();
-
-        if (order.status === 'ORDER_SUCCESSFULLY_COMPLETED') {
-          let successHtml = `🎉 <strong>Siparişiniz Başarıyla Verildi!</strong><br><br>`;
-          successHtml += `🏪 Satıcı: <strong>${lastRecommendation.merchant_name}</strong><br>`;
-          successHtml += `📦 Kargo Kodu: <span class="font-mono text-indigo-300 font-bold">${order.order_tracking_id}</span><br>`;
-          successHtml += `🧾 Makbuz: <span class="font-mono text-slate-400">${order.receipt_id}</span><br>`;
-          successHtml += `💳 Tahsilat: <strong>${order.total_paid_tl} TL</strong> (%5 komisyon kasaya aktarıldı)<br><br>`;
-          successHtml += `<span class="text-emerald-400 text-[11px]">Kargonuz adrese yola çıkmak üzere hazırlanıyor!</span>`;
-          appendMessage('assistant', successHtml, true);
-        } else {
-          appendMessage('assistant', 'Ödeme tamamlanamadı: ' + (order.error || 'Bilinmeyen hata'));
-        }
+        const data = await res.json();
+        
+        log(`💳 <b>AgentGate Devrede:</b> Doğrulama onaylandı. Ücret: <span class="fee">+₺${m.fee.toFixed(2)}</span> kesildi.`);
+        log(`✅ <b>Mutabakat:</b> Firma cüzdanına aktarıldı. Temiz veri ajana iletildi (Tx: ${data.tx_id.substring(0,8)}...)`);
+        
+        // Frontend bakiyesini artır
+        m.balance += m.fee;
+        m.queries += 1;
+        updateMerchantPreview();
       } catch (e) {
-        document.getElementById(loadingId)?.remove();
-        appendMessage('assistant', 'Satın alma sırasında bir hata oluştu.');
+        log(`⚠️ Simülasyon yerel yanıt verdi: Ücret +₺${m.fee.toFixed(2)} kaydedildi.`);
       }
+    }
+
+    function openPartnerModal() {
+      alert("AgentGate Kurumsal Başvuru:\\n\\nFirmanızın API'sini gişeye bağlamak ve sorgu başı fiyat belirlemek için teknik ekibimizle doğrudan iletişime geçebilirsiniz: partner@mineoragame.com");
     }
   </script>
 </body>
 </html>
 """
 
-# =====================================================================
-# CORE PROTOCOL HTTP HANDLER
-# =====================================================================
-class ProtocolHandler(BaseHTTPRequestHandler):
-    def _json(self, data, status=200):
+# ==========================================================
+# SUNUCU İSTEK YÖNETİCİSİ (HTTP HANDLER)
+# ==========================================================
+class AgentGateServer(BaseHTTPRequestHandler):
+
+    def _set_headers(self, status=200, content_type="application/json"):
         self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.end_headers()
-        self.wfile.write(json.dumps(data, indent=2).encode("utf-8"))
 
     def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "*")
-        self.end_headers()
+        self._set_headers(200)
 
     def do_GET(self):
-        parsed = urllib.parse.urlparse(self.path)
-
-        # 1. MOBİL CHAT EKRANI (Telefondan açılacak)
-        if parsed.path in ["/chat", "/app"]:
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(CHAT_UI_HTML.encode("utf-8"))
+        parsed = urlparse(self.path)
+        
+        # 1. Ana Sayfa (Modern B2B Portal & Simülatör)
+        if parsed.path in ["/", "/index.html"]:
+            self._set_headers(200, "text/html; charset=utf-8")
+            self.wfile.write(HTML_LANDING.encode("utf-8"))
             return
 
-        # 2. YÖNETİCİ VE HAZİNE PANELİ
-        elif parsed.path in ["/", "/dashboard"]:
-            # Basit yönlendirme veya panel
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(b"<h1>AgentGate Aktif. Sohbete gitmek icin: <a href='/chat'>/chat</a></h1>")
+        # 2. Canlı Sağlık Kontrolü (Render için)
+        if parsed.path == "/health":
+            self._set_headers(200)
+            self.wfile.write(json.dumps({"status": "healthy", "service": "AgentGate Protocol"}).encode())
             return
 
-        elif parsed.path == "/v1/registry":
-            return self._json({"network_merchants": MERCHANT_REGISTRY})
+        # 3. Anlaşmalı Firmaların Listesi API
+        if parsed.path == "/api/v1/merchants":
+            self._set_headers(200)
+            self.wfile.write(json.dumps({"success": True, "merchants": MERCHANTS}).encode())
+            return
 
-        elif parsed.path == "/v1/ledger":
-            return self._json({
-                "user_accounts": USER_ACCOUNTS,
-                "merchant_accounts": MERCHANT_ACCOUNTS,
-                "network_merchants": MERCHANT_REGISTRY,
-                "receipts": RECEIPTS,
-                "lost_sales": LOST_SALES
-            })
-
-        # 3. LLM ARAMA VE PİYASA TARAMA UCUNU ÇALIŞTIR
-        elif parsed.path == "/v1/ai/search":
-            query_params = urllib.parse.parse_qs(parsed.query)
-            q = query_params.get("query", [""])[0].lower()
-            size = query_params.get("size", [None])[0]
-            size_int = int(size) if size else None
-
-            offers = []
-            for m in MERCHANT_REGISTRY:
-                try:
-                    manifest = requests.get(f"{m['url']}/.well-known/agentgate.json", timeout=1.5).json()
-                    search_url = f"{m['url']}{manifest['endpoints']['search']}?q={q}"
-                    if size_int:
-                        search_url += f"&size={size_int}"
-                    res = requests.get(search_url, timeout=1.5).json()
-                    for item in res.get("items", []):
-                        offers.append({
-                            "merchant_id": m["merchant_id"],
-                            "merchant_name": m["name"],
-                            "sku": item["sku"],
-                            "title": item["title"],
-                            "size": item["size"],
-                            "price": item["price"],
-                            "store_url": m["url"],
-                            "checkout_endpoint": manifest["endpoints"]["checkout"],
-                            "autonomous_buy_supported": True
-                        })
-                except Exception:
-                    pass
-
-            legacy_offers = web_bridge.scan_unregistered_web(q, size_int)
-
-            offers.sort(key=lambda x: x["price"])
-            best_choice = offers[0] if offers else None
-
-            lost_sale_detected = None
-            if legacy_offers and best_choice:
-                cheapest_legacy = min(legacy_offers, key=lambda x: x["price"])
-                if cheapest_legacy["price"] < best_choice["price"]:
-                    lost_sale_detected = {
-                        "lost_merchant": cheapest_legacy["merchant_name"],
-                        "offered_price": cheapest_legacy["price"],
-                        "reason": "Site requires manual form/captcha; no HTTP 402 support."
-                    }
-                    LOST_SALES.append({
-                        "lost_merchant": cheapest_legacy["merchant_name"],
-                        "offered_price": cheapest_legacy["price"],
-                        "winning_merchant": best_choice["merchant_name"],
-                        "actual_price": best_choice["price"],
-                        "timestamp": time.time()
-                    })
-
-            return self._json({
-                "status": "SUCCESS",
-                "recommended_product": best_choice,
-                "all_network_offers": offers,
-                "unregistered_web_offers": legacy_offers,
-                "lost_sale_warning": lost_sale_detected
-            })
-
-        return self._json({"error": "NOT_FOUND"}, 404)
+        self._set_headers(404, "text/plain")
+        self.wfile.write(b"404 Not Found")
 
     def do_POST(self):
-        length = int(self.headers.get("content-length", 0))
-        body = json.loads(self.rfile.read(length).decode("utf-8")) if length > 0 else {}
+        parsed = urlparse(self.path)
 
-        # 4. OTONOM SATIN ALMA
-        if self.path == "/v1/ai/buy":
-            user_id = body.get("user_id", "user_ersin")
-            merchant_id = body.get("merchant_id")
-            sku = body.get("sku")
-            max_budget = float(body.get("max_budget", 0))
-            shipping_address = body.get("shipping_address", "Varsayılan Adres")
-
-            user = USER_ACCOUNTS.get(user_id)
-            if not user or user["balance"] < max_budget:
-                return self._json({"error": "INSUFFICIENT_FUNDS_OR_USER_NOT_FOUND"}, 400)
-
-            merchant = next((m for m in MERCHANT_REGISTRY if m["merchant_id"] == merchant_id), None)
-            if not merchant:
-                return self._json({"error": "MERCHANT_NOT_FOUND"}, 404)
-
-            manifest = requests.get(f"{merchant['url']}/.well-known/agentgate.json").json()
-            checkout_url = f"{merchant['url']}{manifest['endpoints']['checkout']}"
-            payload = {"sku": sku, "shipping_address": shipping_address}
-
-            challenge_res = requests.post(checkout_url, json=payload)
-            if challenge_res.status_code != 402:
-                return self._json({"error": "STORE_DID_NOT_RETURN_402"}, 500)
+        # 4. AgentGate Mikro Ödeme Gişesi API (Yapay Zekaların İstek Attığı Nokta)
+        if parsed.path == "/api/v1/gate":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode("utf-8")
             
-            challenge = challenge_res.json()
-            price = challenge["price_tl"]
+            try:
+                payload = json.loads(body) if body else {}
+            except Exception:
+                payload = {}
 
-            if price > max_budget:
-                return self._json({"error": "PRICE_EXCEEDS_USER_BUDGET"}, 403)
+            m_idx = int(payload.get("merchant_index", 0))
+            if 0 <= m_idx < len(MERCHANTS):
+                merchant = MERCHANTS[m_idx]
+            else:
+                merchant = MERCHANTS[0]
 
-            fee = round(price * COMMISSION_RATE, 2)
-            merchant_payout = round(price - fee, 2)
+            # Mikro bakiyeyi firmanın kasasına ekle
+            merchant["balance"] += merchant["rate_per_query"]
+            merchant["queries_handled"] += 1
+            
+            tx_id = str(uuid.uuid4())
+            response_data = {
+                "success": True,
+                "tx_id": tx_id,
+                "protocol": "AGENTGATE_V1_MICROPAY",
+                "merchant": merchant["name"],
+                "fee_deducted": merchant["rate_per_query"],
+                "currency": merchant["currency"],
+                "timestamp": int(time.time()),
+                "status": "SETTLED",
+                "verified_data": {
+                    "result": f"'{payload.get('query', 'Genel Talep')}' sorgusu için doğrulanmış canlı veri paketi.",
+                    "cache_ttl": 60,
+                    "auth_signature": "sha256_verified_gate_token"
+                }
+            }
+            
+            self._set_headers(200)
+            self.wfile.write(json.dumps(response_data, ensure_ascii=False).encode("utf-8"))
+            return
 
-            user["balance"] -= price
-            MERCHANT_ACCOUNTS[merchant_id] = round(MERCHANT_ACCOUNTS.get(merchant_id, 0.0) + merchant_payout, 2)
-            MERCHANT_ACCOUNTS["AGENTGATE_TREASURY"] = round(MERCHANT_ACCOUNTS["AGENTGATE_TREASURY"] + fee, 2)
+        self._set_headers(404, "text/plain")
+        self.wfile.write(b"404 Not Found")
 
-            receipt_id = f"rcpt_{uuid.uuid4().hex[:10]}"
-            RECEIPTS.append({
-                "receipt_id": receipt_id,
-                "user_id": user_id,
-                "merchant_id": merchant_id,
-                "amount": price,
-                "fee": fee,
-                "timestamp": time.time()
-            })
-
-            final_res = requests.post(
-                checkout_url,
-                json=payload,
-                headers={"X-AgentGate-Receipt": receipt_id}
-            ).json()
-
-            return self._json({
-                "status": "ORDER_SUCCESSFULLY_COMPLETED",
-                "receipt_id": receipt_id,
-                "product_name": final_res.get("product"),
-                "total_paid_tl": price,
-                "protocol_fee_tl": fee,
-                "order_tracking_id": final_res.get("order_id"),
-                "delivery_address": shipping_address
-            })
-
-        return self._json({"error": "NOT_FOUND"}, 404)
-
-    def log_message(self, *args):
-        return
-
+# ==========================================================
+# SUNUCUYU BAŞLATMA
+# ==========================================================
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 10000))
-    print(f"⚡ AGENTGATE AKTİF - PORT: {port}")
-    HTTPServer(("", port), ProtocolHandler).serve_forever()
+    print("=" * 65)
+    print(f"🚀 AGENTGATE PROTOKOLÜ ÇALIŞIYOR (Port: {port})")
+    print(f"🏢 B2B Kapısı & Mikro Gişe Hazır")
+    print("=" * 65)
+    HTTPServer(("", port), AgentGateServer).serve_forever()
